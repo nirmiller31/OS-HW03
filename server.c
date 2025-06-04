@@ -81,18 +81,18 @@ void* worker_thread(void* arg){
         pthread_cond_signal(&queue_not_full);
         pthread_mutex_unlock(&queue_lock);
 
-        struct timeval arrival, dispatch;
+        struct timeval arrival, dispatch;               // Time shit TODO
         arrival.tv_sec = 0; arrival.tv_usec = 0;   // DEMO: dummy timestamps
         dispatch.tv_sec = 0; dispatch.tv_usec = 0; // DEMO: dummy timestamps
         // gettimeofday(&arrival, NULL);
 
         requestHandle(connfd, arrival, dispatch, t, log);
-        Close(connfd); // Close the connection
+        Close(connfd);                                  // Close the current connection
 
     }
 
-    free(t); // Cleanup
-    
+    free(t);                                            // Memory cleanup
+
 }
 
 
