@@ -18,9 +18,11 @@
 int connection_queue[MAX_QUEUE_SIZE];
 int head = 0;
 int tail = 0;
-int count = 0;
+int queued_threads = 0;
+int active_threads = 0;
 
 pthread_mutex_t queue_lock = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t active_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t queue_not_empty = PTHREAD_COND_INITIALIZER;
 pthread_cond_t queue_not_full = PTHREAD_COND_INITIALIZER;
 
@@ -42,15 +44,18 @@ void enqueue(int connfd) {
 
     pthread_mutex_lock(&queue_lock);
 
-    while(count == MAX_QUEUE_SIZE){
-        pthread_cond_wait(&queue_not_full, &queue_lock);
+    if(!((queued_threads+active_threads) >= MAX_QUEUE_SIZE)){                 // We have too many clients, dump the new
+        while((queued_threads+active_threads) == MAX_QUEUE_SIZE){
+            pthread_cond_wait(&queue_not_full, &queue_lock);
+        }
+    
+        connection_queue[tail] = connfd;
+        tail = (tail + 1) % MAX_QUEUE_SIZE;
+        queued_threads++;
+
+        pthread_cond_signal(&queue_not_empty);
     }
 
-    connection_queue[tail] = connfd;
-    tail = (tail + 1) % MAX_QUEUE_SIZE;
-    count++;
-
-    pthread_cond_signal(&queue_not_empty);
     pthread_mutex_unlock(&queue_lock);
 }
 
@@ -58,6 +63,8 @@ void enqueue(int connfd) {
 void* worker_thread(void* arg){
 
     server_log log = (server_log)arg;
+
+    int current_connection_fd;
 
     threads_stats t = malloc(sizeof(struct Threads_stats));
         t->id = 0;             // Thread ID (placeholder)
@@ -67,17 +74,16 @@ void* worker_thread(void* arg){
 
     while(1){
 
-        int current_connection_fd;
-
         pthread_mutex_lock(&queue_lock);                // Start Atomic process, Dont touch the queue until we update its parmeters
 
-        while(count == 0){                              // If the queue is Empty, Workers on hold
+        while((queued_threads+active_threads) == 0){                // If the queue is Empty, Workers on hold
             pthread_cond_wait(&queue_not_empty, &queue_lock);       // If queue is empty and queue_not_empty, while queue_lock, continue from here
         }
 
         current_connection_fd = connection_queue[head]; // Get the next (FIFO) connection to handle
         head = (head+1) % MAX_QUEUE_SIZE;
-        count--;
+        queued_threads--;                               // Consider as unqueued, will be handled
+        active_threads++;                               // It is no longer queued, consider as active
 
         pthread_cond_signal(&queue_not_full);
         pthread_mutex_unlock(&queue_lock);
@@ -87,7 +93,11 @@ void* worker_thread(void* arg){
         dispatch.tv_sec = 0; dispatch.tv_usec = 0; // DEMO: dummy timestamps
         // gettimeofday(&arrival, NULL);
 
+        pthread_mutex_lock(&active_lock);
         requestHandle(current_connection_fd, arrival, dispatch, t, log);
+        active_threads--;
+        pthread_mutex_unlock(&active_lock);
+
         Close(current_connection_fd);                   // Close the current connection
 
     }
@@ -115,7 +125,9 @@ int main(int argc, char *argv[])
     }
 
     while (1) {
+        
         clientlen = sizeof(clientaddr);
+
         connfd = Accept(listenfd, (SA *)&clientaddr, (socklen_t *) &clientlen);
 
         enqueue(connfd);
