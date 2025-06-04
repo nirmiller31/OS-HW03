@@ -12,6 +12,18 @@
 // Most of the work is done within routines written in request.c
 //
 
+#define MAX_QUEUE_SIZE 64
+#define THREAD_POOL_SIZE 8
+
+int connection_queue[MAX_QUEUE_SIZE];
+int head = 0;
+int tail = 0;
+int count = 0;
+
+pthread_mutex_t queue_lock = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t queue_not_empty = PTHREAD_COND_INITIALIZER;
+pthread_cond_t queue_not_full = PTHREAD_COND_INITIALIZER;
+
 // Parses command-line arguments
 void getargs(int *port, int argc, char *argv[])
 {
@@ -26,6 +38,64 @@ void getargs(int *port, int argc, char *argv[])
 // You must implement a thread pool (fixed number of worker threads)
 // that process requests from a synchronized queue.
 
+void enqueue(int connfd) {
+
+    pthread_mutex_lock(&queue_lock);
+
+    while(count == MAX_QUEUE_SIZE){
+        pthread_cond_wait(&queue_not_full, &queue_lock);
+    }
+
+    connection_queue[tail] = connfd;
+    tail = (tail + 1) % MAX_QUEUE_SIZE;
+    count++;
+
+    pthread_cond_signal(&queue_not_empty);
+    pthread_mutex_unlock(&queue_lock);
+}
+
+
+void* worker_thread(void* arg){
+    (void)arg;                      // We ignore it now, TODO use the args
+
+    threads_stats t = malloc(sizeof(struct Threads_stats));
+        t->id = 0;             // Thread ID (placeholder)
+        t->stat_req = 0;       // Static request count
+        t->dynm_req = 0;       // Dynamic request count
+        t->total_req = 0;      // Total request count
+
+    while(1){
+
+        int current_connection_fd;
+
+        pthread_mutex_lock(&queue_lock);
+
+        while(count == 8){
+            pthread_cond_wait(&queue_not_empty, &queue_lock);
+        }
+
+        current_connection_fd = connection_queue[head];
+        head = (head+1) % MAX_QUEUE_SIZE;
+        count--;
+
+        pthread_cond_signal(&queue_not_full);
+        pthread_mutex_unlock(&queue_lock);
+
+        struct timeval arrival, dispatch;
+        arrival.tv_sec = 0; arrival.tv_usec = 0;   // DEMO: dummy timestamps
+        dispatch.tv_sec = 0; dispatch.tv_usec = 0; // DEMO: dummy timestamps
+        // gettimeofday(&arrival, NULL);
+
+        requestHandle(connfd, arrival, dispatch, t, log);
+        Close(connfd); // Close the connection
+
+    }
+
+    free(t); // Cleanup
+    
+}
+
+
 int main(int argc, char *argv[])
 {
     // Create the global server log
@@ -36,37 +106,18 @@ int main(int argc, char *argv[])
 
     getargs(&port, argc, argv);
 
-
-
     listenfd = Open_listenfd(port);
+
+    pthread_t threads[THREAD_POOL_SIZE];
+    for(int i=0 ; i<THREAD_POOL_SIZE ; i++){
+        pthread_create(&threads[i], NULL, worker_thread, NULL);
+    }
+
     while (1) {
         clientlen = sizeof(clientaddr);
         connfd = Accept(listenfd, (SA *)&clientaddr, (socklen_t *) &clientlen);
 
-        // TODO: HW3 — Record the request arrival time here
-
-        // DEMO PURPOSE ONLY:
-        // This is a dummy request handler that immediately processes
-        // the request in the main thread without concurrency.
-        // Replace this with logic to enqueue the connection and let
-        // a worker thread process it from the queue.
-
-        threads_stats t = malloc(sizeof(struct Threads_stats));
-        t->id = 0;             // Thread ID (placeholder)
-        t->stat_req = 0;       // Static request count
-        t->dynm_req = 0;       // Dynamic request count
-        t->total_req = 0;      // Total request count
-
-        struct timeval arrival, dispatch;
-        arrival.tv_sec = 0; arrival.tv_usec = 0;   // DEMO: dummy timestamps
-        dispatch.tv_sec = 0; dispatch.tv_usec = 0; // DEMO: dummy timestamps
-        // gettimeofday(&arrival, NULL);
-
-        // Call the request handler (immediate in main thread — DEMO ONLY)
-        requestHandle(connfd, arrival, dispatch, t, log);
-
-        free(t); // Cleanup
-        Close(connfd); // Close the connection
+        enqueue(connfd);
     }
 
     // Clean up the server log before exiting
