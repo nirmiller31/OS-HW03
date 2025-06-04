@@ -56,7 +56,8 @@ void enqueue(int connfd) {
 
 
 void* worker_thread(void* arg){
-    (void)arg;                      // We ignore it now, TODO use the args
+
+    server_log log = (server_log)arg;
 
     threads_stats t = malloc(sizeof(struct Threads_stats));
         t->id = 0;             // Thread ID (placeholder)
@@ -68,13 +69,13 @@ void* worker_thread(void* arg){
 
         int current_connection_fd;
 
-        pthread_mutex_lock(&queue_lock);
+        pthread_mutex_lock(&queue_lock);                // Start Atomic process, Dont touch the queue until we update its parmeters
 
-        while(count == 8){
-            pthread_cond_wait(&queue_not_empty, &queue_lock);
+        while(count == 0){                              // If the queue is Empty, Workers on hold
+            pthread_cond_wait(&queue_not_empty, &queue_lock);       // If queue is empty and queue_not_empty, while queue_lock, continue from here
         }
 
-        current_connection_fd = connection_queue[head];
+        current_connection_fd = connection_queue[head]; // Get the next (FIFO) connection to handle
         head = (head+1) % MAX_QUEUE_SIZE;
         count--;
 
@@ -86,8 +87,8 @@ void* worker_thread(void* arg){
         dispatch.tv_sec = 0; dispatch.tv_usec = 0; // DEMO: dummy timestamps
         // gettimeofday(&arrival, NULL);
 
-        requestHandle(connfd, arrival, dispatch, t, log);
-        Close(connfd);                                  // Close the current connection
+        requestHandle(current_connection_fd, arrival, dispatch, t, log);
+        Close(current_connection_fd);                   // Close the current connection
 
     }
 
@@ -110,7 +111,7 @@ int main(int argc, char *argv[])
 
     pthread_t threads[THREAD_POOL_SIZE];
     for(int i=0 ; i<THREAD_POOL_SIZE ; i++){
-        pthread_create(&threads[i], NULL, worker_thread, NULL);
+        pthread_create(&threads[i], NULL, worker_thread, (void*)log);
     }
 
     while (1) {
