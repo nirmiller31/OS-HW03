@@ -10,9 +10,9 @@ struct Server_Log {
     size_t log_size;
     size_t log_capacity;
 
-    pthread_mutex_t log_lock = PTHREAD_MUTEX_INITIALIZER;
-    pthread_cond_t read_allowed = PTHREAD_MUTEX_INITIALIZER;
-    pthread_cond_t write_allowed = PTHREAD_MUTEX_INITIALIZER;
+    pthread_mutex_t log_lock;
+    pthread_cond_t read_allowed;
+    pthread_cond_t write_allowed;
     
     int readers_inside;
     int writers_inside;
@@ -29,14 +29,14 @@ server_log create_log() {
     }
 
     log -> log_size = 0;
-    log -> log_capacity = segel::MAXBUF;
+    log -> log_capacity = MAXBUF;
     log -> log_buffer = malloc(log -> log_capacity);     // Initial size for a buffer
-    if(!log -> buffer){
+    if(!log -> log_buffer){
         perror("Couldn't malloc a log");
         free(log);
         return NULL;
     }
-    log -> buffer = '\0';
+    log->log_buffer[0] = '\0';
 
     log -> readers_inside = 0;
     log -> writers_inside = 0;
@@ -52,7 +52,11 @@ server_log create_log() {
 
 // Destroys and frees the log (stub)
 void destroy_log(server_log log) {
-    // TODO: Free all internal resources used by the log
+    if (!log) return;
+    free(log->log_buffer);
+    mutex_destroy(&log->log_lock);
+    cond_destroy(&log->read_allowed);
+    cond_destroy(&log->write_allowed);
     free(log);
 }
 
@@ -61,21 +65,21 @@ int get_log(server_log log, char** dst) {
     // TODO: Return the full contents of the log as a dynamically allocated string
     // This function should handle concurrent access
 
-    mutex_lock(&log_lock);
-    while(writers_inside > 0 || writers_waiting > 0) {
-        cond_wait(&read_allowed, &log_lock);
+    mutex_lock(&(log->log_lock));
+    while((log->writers_inside) > 0 || (log->writers_waiting) > 0) {
+        cond_wait(&(log->read_allowed), &(log->log_lock));
     }
-    readers_inside++;
-    mutex_unlock(&log_lock);
+    (log->readers_inside)++;
+    mutex_unlock(&(log->log_lock));
 
     // TODO add the logging
 
-    mutex_lock(&log_lock);
-    readers_inside--;
-    if(readers_inside == 0){
-        cond_signal(&write_allowed);
+    mutex_lock(&(log->log_lock));
+    (log->readers_inside)--;
+    if((log->readers_inside) == 0){
+        cond_signal(&(log->write_allowed));
     }
-    mutex_unlock(&log_lock);
+    mutex_unlock(&(log->log_lock));
 
     // const char* dummy = "Log is not implemented.\n";
     // int len = strlen(dummy);
@@ -89,8 +93,8 @@ int get_log(server_log log, char** dst) {
 // Appends a new entry to the log (no-op stub)
 void add_to_log(server_log log, const char* data, int data_len) {
 
-    mutex_lock(&log_lock);
-    writers_waiting++;
+    mutex_lock(&log->log_lock);
+    (log->writers_waiting)++;
     while(log->writers_inside + log->readers_inside > 0) {
         cond_wait(&log->write_allowed, &log->log_lock);
     }
@@ -98,18 +102,18 @@ void add_to_log(server_log log, const char* data, int data_len) {
     (log->writers_inside)++;
     mutex_unlock(&log->log_lock);
 
-    if(log->size + 1 > log->log_capacity) {                 // Case we need to increase the log
-        size_t new_log_capcity = (log->log_capacity)*2;
-        while(new_log_capcity < log->log_size + data_len + 1){
-            new_log_capcity *= 2;
+    if (log->log_size + data_len + 1 > log->log_capacity) { // Case we need to increase the log
+        size_t new_log_capacity = (log->log_capacity)*2;
+        while(new_log_capacity < log->log_size + data_len + 1){
+            new_log_capacity *= 2;
         }
-        char* new_log_buffer = realloc(log->log_buffer, new_log_capcity);
+        char* new_log_buffer = realloc(log->log_buffer, new_log_capacity);
         if(!new_log_buffer) {
             fprintf(stderr, "ERROR, Failed to realloc new log");
         }
         else{
             log->log_buffer = new_log_buffer;               // Update to the new buffer (sizing)
-            log->log_capacity = new_log_capcity;            // Update new capacity
+            log->log_capacity = new_log_capacity;           // Update new capacity
 
             memcpy(log->log_buffer + log->log_size, data, data_len);        // Copy the new data to the pointer of log_buffer+log_size (end of previous log)
             log->log_size += data_len;                      // Increase the log_size by the size we added
@@ -123,10 +127,10 @@ void add_to_log(server_log log, const char* data, int data_len) {
     }
 
     mutex_lock(&log->log_lock);
-    writers_inside--;
-    if(writers_inside == 0) {
-        cond_broadcast(&read_allowed);
-        cond_signal(&write_allowed);
+    (log->writers_inside)--;
+    if((log->writers_inside) == 0) {
+        cond_broadcast(&(log->read_allowed));
+        cond_signal(&(log->write_allowed));
     }
-    mutex_unlock(&log_lock);
+    mutex_unlock(&(log->log_lock));
 }
