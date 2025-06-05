@@ -12,6 +12,8 @@
 // Most of the work is done within routines written in request.c
 //
 
+// TODO, handle: Proper error checking and robust synchronization (no race condition, no deadlocks) are required.
+
 #define MAX_QUEUE_SIZE 64
 #define THREAD_POOL_SIZE 8
 
