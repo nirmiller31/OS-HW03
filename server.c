@@ -134,8 +134,8 @@ int main(int argc, char *argv[])
 
     listenfd = Open_listenfd(port);
 
-    pthread_t* threads = malloc(sizeof(pthread_t * THREAD_POOL_SIZE));
-    thread_arg** args = malloc(sizeof((thread_arg*) * THREAD_POOL_SIZE));
+    pthread_t* threads = malloc(sizeof(pthread_t) * THREAD_POOL_SIZE);
+    thread_arg** args = malloc(sizeof(thread_arg*) * THREAD_POOL_SIZE);
 
     for(int i = 0; i < THREAD_POOL_SIZE; i++) {
         args[i] = malloc(sizeof(thread_arg));
