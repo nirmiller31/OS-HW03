@@ -93,7 +93,7 @@ void* worker_thread(void* arg){
         struct timeval arrival, dispatch;               // Time shit TODO
         arrival.tv_sec = 0; arrival.tv_usec = 0;   // DEMO: dummy timestamps
         dispatch.tv_sec = 0; dispatch.tv_usec = 0; // DEMO: dummy timestamps
-        // gettimeofday(&arrival, NULL);
+        gettimeofday(&arrival, NULL);
 
         pthread_mutex_lock(&active_lock);
         requestHandle(current_connection_fd, arrival, dispatch, t, log);        // TODO check if this seperation causes context-switch jamming

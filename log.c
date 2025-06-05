@@ -41,9 +41,9 @@ server_log create_log() {
     log -> readers_inside = 0;
     log -> writers_inside = 0;
     log -> writers_waiting = 0;
-    mutex_init(&log -> log_lock, NULL);
-    cond_init(&log -> read_allowed, NULL);
-    cond_init(&log -> write_allowed, NULL);
+    pthread_mutex_init(&log -> log_lock, NULL);
+    pthread_cond_init(&log -> read_allowed, NULL);
+    pthread_cond_init(&log -> write_allowed, NULL);
 
     return log;
     // TODO: Allocate and initialize internal log structure
@@ -54,9 +54,9 @@ server_log create_log() {
 void destroy_log(server_log log) {
     if (!log) return;
     free(log->log_buffer);
-    mutex_destroy(&log->log_lock);
-    cond_destroy(&log->read_allowed);
-    cond_destroy(&log->write_allowed);
+    pthread_mutex_destroy(&log->log_lock);
+    pthread_cond_destroy(&log->read_allowed);
+    pthread_cond_destroy(&log->write_allowed);
     free(log);
 }
 
@@ -65,21 +65,36 @@ int get_log(server_log log, char** dst) {
     // TODO: Return the full contents of the log as a dynamically allocated string
     // This function should handle concurrent access
 
-    mutex_lock(&(log->log_lock));
+    pthread_mutex_lock(&(log->log_lock));
     while((log->writers_inside) > 0 || (log->writers_waiting) > 0) {
-        cond_wait(&(log->read_allowed), &(log->log_lock));
+        pthread_cond_wait(&(log->read_allowed), &(log->log_lock));
     }
     (log->readers_inside)++;
-    mutex_unlock(&(log->log_lock));
+    pthread_mutex_unlock(&(log->log_lock));
 
-    // TODO add the logging
+    *dst = malloc(log->log_size + 1);
+    if(*dst == NULL){                                       // Handle with a failed reading
+        perror("Couldn't malloc get_log");
+        pthread_mutex_lock(&(log->log_lock));
+        (log->readers_inside)--;
+        if((log->readers_inside) == 0){
+            pthread_cond_signal(&(log->write_allowed));
+        }
+        pthread_mutex_unlock(&(log->log_lock));
+        return 0;
+    }
 
-    mutex_lock(&(log->log_lock));
+    memcpy(*dst, log->log_buffer, log->log_size);
+    (*dst)[log->log_size] = '\0';
+
+    pthread_mutex_lock(&(log->log_lock));
     (log->readers_inside)--;
     if((log->readers_inside) == 0){
-        cond_signal(&(log->write_allowed));
+        pthread_cond_signal(&(log->write_allowed));
     }
-    mutex_unlock(&(log->log_lock));
+    pthread_mutex_unlock(&(log->log_lock));
+
+    return (int)log->log_size;
 
     // const char* dummy = "Log is not implemented.\n";
     // int len = strlen(dummy);
@@ -93,14 +108,14 @@ int get_log(server_log log, char** dst) {
 // Appends a new entry to the log (no-op stub)
 void add_to_log(server_log log, const char* data, int data_len) {
 
-    mutex_lock(&log->log_lock);
+    pthread_mutex_lock(&log->log_lock);
     (log->writers_waiting)++;
     while(log->writers_inside + log->readers_inside > 0) {
-        cond_wait(&log->write_allowed, &log->log_lock);
+        pthread_cond_wait(&log->write_allowed, &log->log_lock);
     }
     (log->writers_waiting)--;
     (log->writers_inside)++;
-    mutex_unlock(&log->log_lock);
+    pthread_mutex_unlock(&log->log_lock);
 
     if (log->log_size + data_len + 1 > log->log_capacity) { // Case we need to increase the log
         size_t new_log_capacity = (log->log_capacity)*2;
@@ -126,11 +141,11 @@ void add_to_log(server_log log, const char* data, int data_len) {
         log->log_buffer[log->log_size] = '\0';              // End the new log    
     }
 
-    mutex_lock(&log->log_lock);
+    pthread_mutex_lock(&log->log_lock);
     (log->writers_inside)--;
     if((log->writers_inside) == 0) {
-        cond_broadcast(&(log->read_allowed));
-        cond_signal(&(log->write_allowed));
+        pthread_cond_broadcast(&(log->read_allowed));
+        pthread_cond_signal(&(log->write_allowed));
     }
-    mutex_unlock(&(log->log_lock));
+    pthread_mutex_unlock(&(log->log_lock));
 }
