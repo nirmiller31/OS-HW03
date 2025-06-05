@@ -192,7 +192,7 @@
 	// handle a request
 	void requestHandle(int fd, struct timeval arrival, struct timeval dispatch, threads_stats t_stats, server_log log)
 	{
-	// TODO:  should update static request stats
+	(t_stats->total_req)++;
 	int is_static;
 	struct stat sbuf;
 	char buf[MAXLINE], method[MAXLINE], uri[MAXLINE], version[MAXLINE];
@@ -221,7 +221,7 @@
 						arrival, dispatch, t_stats);
 				return;
 			}
-
+			(t_stats->stat_req)++;
 			requestServeStatic(fd, filename, sbuf.st_size, arrival, dispatch, t_stats);
 
 		} else {
@@ -231,7 +231,7 @@
 						arrival, dispatch, t_stats);
 				return;
 			}
-
+			(t_stats->dynm_req)++;
 			requestServeDynamic(fd, filename, cgiargs, arrival, dispatch, t_stats);
 		}
 
@@ -242,6 +242,7 @@
 		// TODO: verify its ok add log entry using add_to_log(server_log log, const char* data, int data_len);
 
 	} else if (!strcasecmp(method, "POST")) {
+		(t_stats->post_req)++;
 		requestServePost(fd, arrival, dispatch, t_stats, log);
 
 	} else {
