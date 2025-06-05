@@ -14,15 +14,15 @@
 
 // TODO, handle: Proper error checking and robust synchronization (no race condition, no deadlocks) are required.
 
-#define MAX_QUEUE_SIZE 64
-#define THREAD_POOL_SIZE 8
+int MAX_QUEUE_SIZE;
+int THREAD_POOL_SIZE;
 
 typedef struct {
     int thread_id;
     server_log log;
 } thread_arg;
 
-int connection_queue[MAX_QUEUE_SIZE];
+int *connection_queue;
 int head = 0;
 int tail = 0;
 int queued_threads = 0;
@@ -34,13 +34,15 @@ pthread_cond_t queue_not_empty = PTHREAD_COND_INITIALIZER;
 pthread_cond_t queue_not_full = PTHREAD_COND_INITIALIZER;
 
 // Parses command-line arguments
-void getargs(int *port, int argc, char *argv[])
+void getargs(int *port, int *threads, int *queue_size, int argc, char *argv[])
 {
-    if (argc < 2) {
+    if (argc < 42) {
         fprintf(stderr, "Usage: %s <port>\n", argv[0]);
         exit(1);
     }
     *port = atoi(argv[1]);
+    *threads = atoi(argv[2]);
+    *queue_size = atoi(argv[3]);
 }
 // TODO: HW3 — Initialize thread pool and request queue
 // This server currently handles all requests in the main thread.
@@ -126,12 +128,14 @@ int main(int argc, char *argv[])
     int listenfd, connfd, port, clientlen;
     struct sockaddr_in clientaddr;
 
-    getargs(&port, argc, argv);
+    getargs(&port, &THREAD_POOL_SIZE, &MAX_QUEUE_SIZE, argc, argv);
+
+    connection_queue = malloc(sizeof(int) * MAX_QUEUE_SIZE);
 
     listenfd = Open_listenfd(port);
 
-    pthread_t threads[THREAD_POOL_SIZE];
-    thread_arg* args[THREAD_POOL_SIZE];
+    pthread_t* threads = malloc(sizeof(pthread_t * THREAD_POOL_SIZE));
+    thread_arg** args = malloc(sizeof((thread_arg*) * THREAD_POOL_SIZE));
 
     for(int i = 0; i < THREAD_POOL_SIZE; i++) {
         args[i] = malloc(sizeof(thread_arg));
