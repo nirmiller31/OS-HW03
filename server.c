@@ -94,7 +94,7 @@ void* worker_thread(void* arg){
         // gettimeofday(&arrival, NULL);
 
         pthread_mutex_lock(&active_lock);
-        requestHandle(current_connection_fd, arrival, dispatch, t, log);
+        requestHandle(current_connection_fd, arrival, dispatch, t, log);        // TODO check if this seperation causes context-switch jamming
         active_threads--;
         pthread_mutex_unlock(&active_lock);
 
