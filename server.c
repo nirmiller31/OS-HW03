@@ -17,6 +17,11 @@
 #define MAX_QUEUE_SIZE 64
 #define THREAD_POOL_SIZE 8
 
+typedef struct {
+    int thread_id;
+    server_log log;
+} thread_arg;
+
 int connection_queue[MAX_QUEUE_SIZE];
 int head = 0;
 int tail = 0;
@@ -64,15 +69,19 @@ void enqueue(int connfd) {
 
 void* worker_thread(void* arg){
 
-    server_log log = (server_log)arg;
+    thread_arg* t_arg = (thread_arg*)arg;
+    server_log log = t_arg->log;
+    int thread_id = t_arg->thread_id;
+    free(t_arg);  // Done with it
 
     int current_connection_fd;
 
     threads_stats t = malloc(sizeof(struct Threads_stats));
-        t->id = 0;             // Thread ID (placeholder)
-        t->stat_req = 0;       // Static request count
-        t->dynm_req = 0;       // Dynamic request count
-        t->total_req = 0;      // Total request count
+        t->id = thread_id;
+        t->stat_req = 0;
+        t->dynm_req = 0;
+        t->total_req = 0;
+        t->post_req = 0;
 
     while(1){
 
@@ -122,9 +131,16 @@ int main(int argc, char *argv[])
     listenfd = Open_listenfd(port);
 
     pthread_t threads[THREAD_POOL_SIZE];
-    for(int i=0 ; i<THREAD_POOL_SIZE ; i++){
-        pthread_create(&threads[i], NULL, worker_thread, (void*)log);
+    thread_arg* args[THREAD_POOL_SIZE];
+
+    for(int i = 0; i < THREAD_POOL_SIZE; i++) {
+        args[i] = malloc(sizeof(thread_arg));
+        args[i]->thread_id = i + 1;    // IDs from 1 to N
+        args[i]->log = log;
+    
+        pthread_create(&threads[i], NULL, worker_thread, (void*)args[i]);
     }
+    
 
     while (1) {
         
