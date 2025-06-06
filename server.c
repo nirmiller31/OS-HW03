@@ -87,23 +87,21 @@ void* worker_thread(void* arg){
 
     while(1){
 
-        pthread_mutex_lock(&queue_lock);                // Start Atomic process, Dont touch the queue until we update its parmeters
+        pthread_mutex_lock(&queue_lock);                            // Start Atomic process, Dont touch the queue until we update its parmeters
 
         while((queued_threads+active_threads) == 0){                // If the queue is Empty, Workers on hold
             pthread_cond_wait(&queue_not_empty, &queue_lock);       // If queue is empty and queue_not_empty, while queue_lock, continue from here
         }
 
-        current_connection_fd = connection_queue[head]; // Get the next (FIFO) connection to handle
+        current_connection_fd = connection_queue[head];             // Get the next (FIFO) connection to handle
         head = (head+1) % MAX_QUEUE_SIZE;
-        queued_threads--;                               // Consider as unqueued, will be handled
-        active_threads++;                               // It is no longer queued, consider as active
+        queued_threads--;                                           // Consider as unqueued, will be handled
+        active_threads++;                                           // It is no longer queued, consider as active
 
         pthread_cond_signal(&queue_not_full);
         pthread_mutex_unlock(&queue_lock);
 
-        struct timeval arrival, dispatch;               // Time shit TODO
-        arrival.tv_sec = 0; arrival.tv_usec = 0;   // DEMO: dummy timestamps
-        dispatch.tv_sec = 0; dispatch.tv_usec = 0; // DEMO: dummy timestamps
+        struct timeval arrival, dispatch;                           // Time shit TODO
         gettimeofday(&arrival, NULL);
 
         pthread_mutex_lock(&active_lock);
@@ -111,19 +109,15 @@ void* worker_thread(void* arg){
         active_threads--;
         pthread_mutex_unlock(&active_lock);
 
-        Close(current_connection_fd);                   // Close the current connection
-
+        Close(current_connection_fd);                               // Close the current connection
     }
-
-    free(t);                                            // Memory cleanup
-
+    free(t);                                                        // Memory cleanup
 }
 
 
 int main(int argc, char *argv[])
 {
-    // Create the global server log
-    server_log log = create_log();
+    server_log log = create_log();                                  // Create the global server log
 
     int listenfd, connfd, port, clientlen;
     struct sockaddr_in clientaddr;
@@ -137,26 +131,22 @@ int main(int argc, char *argv[])
     pthread_t* threads = malloc(sizeof(pthread_t) * THREAD_POOL_SIZE);
     thread_arg** args = malloc(sizeof(thread_arg*) * THREAD_POOL_SIZE);
 
-    for(int i = 0; i < THREAD_POOL_SIZE; i++) {
+    for(int i = 0; i < THREAD_POOL_SIZE; i++) {                     // Create THREAD_POOL_SIZE thread amount
         args[i] = malloc(sizeof(thread_arg));
-        args[i]->thread_id = i + 1;    // IDs from 1 to N
+        args[i]->thread_id = i + 1;                                 // IDs from 1 to N
         args[i]->log = log;
-    
+                                                                    // Send each thread to worker_thread
         pthread_create(&threads[i], NULL, worker_thread, (void*)args[i]);
     }
     
-
     while (1) {
         
         clientlen = sizeof(clientaddr);
-
         connfd = Accept(listenfd, (SA *)&clientaddr, (socklen_t *) &clientlen);
-
         enqueue(connfd);
     }
 
-    // Clean up the server log before exiting
-    destroy_log(log);
+    destroy_log(log);                                               // Clean up the server log before exiting
 
-    // TODO: HW3 — Add cleanup code for thread pool and queue
+    // TODO: HW3 — Add cleanup code for thread pool and queue verify it is enough
 }

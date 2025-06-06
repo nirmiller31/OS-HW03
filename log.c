@@ -47,7 +47,6 @@ server_log create_log() {
 
     return log;
     // TODO: Allocate and initialize internal log structure
-    // return (server_log)malloc(sizeof(struct Server_Log));
 }
 
 // Destroys and frees the log (stub)
@@ -95,14 +94,6 @@ int get_log(server_log log, char** dst) {
     pthread_mutex_unlock(&(log->log_lock));
 
     return (int)log->log_size;
-
-    // const char* dummy = "Log is not implemented.\n";
-    // int len = strlen(dummy);
-    // *dst = (char*)malloc(len + 1); // Allocate for caller
-    // if (*dst != NULL) {
-    //     strcpy(*dst, dummy);
-    // }
-    // return len;
 }
 
 // Appends a new entry to the log (no-op stub)
