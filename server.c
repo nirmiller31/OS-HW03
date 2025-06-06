@@ -36,7 +36,7 @@ pthread_cond_t queue_not_full = PTHREAD_COND_INITIALIZER;
 // Parses command-line arguments
 void getargs(int *port, int *threads, int *queue_size, int argc, char *argv[])
 {
-    if (argc < 42) {
+    if (argc < 4) {
         fprintf(stderr, "Usage: %s <port>\n", argv[0]);
         exit(1);
     }
