@@ -53,28 +53,25 @@ void enqueue(int connfd) {
 
     pthread_mutex_lock(&queue_lock);
 
-    if(!((queued_threads+active_threads) >= MAX_QUEUE_SIZE)){                 // We have too many clients, dump the new
-        while((queued_threads+active_threads) == MAX_QUEUE_SIZE){
-            pthread_cond_wait(&queue_not_full, &queue_lock);
-        }
-    
-        connection_queue[tail] = connfd;
-        tail = (tail + 1) % MAX_QUEUE_SIZE;
-        queued_threads++;
-
-        pthread_cond_signal(&queue_not_empty);
+    while ((queued_threads + active_threads) == MAX_QUEUE_SIZE) {
+        pthread_cond_wait(&queue_not_full, &queue_lock);            // BLOCK until space
     }
 
-    pthread_mutex_unlock(&queue_lock);
-}
+    connection_queue[tail] = connfd;
+    tail = (tail + 1) % MAX_QUEUE_SIZE;
+    queued_threads++;
 
+    pthread_cond_signal(&queue_not_empty);                          // wake a worker
+    pthread_mutex_unlock(&queue_lock);
+
+}
 
 void* worker_thread(void* arg){
 
     thread_arg* t_arg = (thread_arg*)arg;
     server_log log = t_arg->log;
     int thread_id = t_arg->thread_id;
-    free(t_arg);  // Done with it
+    free(t_arg);                                                    // Done with it
 
     int current_connection_fd;
 
@@ -88,8 +85,8 @@ void* worker_thread(void* arg){
     while(1){
 
         pthread_mutex_lock(&queue_lock);                            // Start Atomic process, Dont touch the queue until we update its parmeters
-
-        while((queued_threads+active_threads) == 0){                // If the queue is Empty, Workers on hold
+        
+        while(queued_threads == 0){                                 // If the queue is Empty, Workers on hold
             pthread_cond_wait(&queue_not_empty, &queue_lock);       // If queue is empty and queue_not_empty, while queue_lock, continue from here
         }
 
@@ -98,18 +95,19 @@ void* worker_thread(void* arg){
         queued_threads--;                                           // Consider as unqueued, will be handled
         active_threads++;                                           // It is no longer queued, consider as active
 
-        pthread_cond_signal(&queue_not_full);
         pthread_mutex_unlock(&queue_lock);
 
         struct timeval arrival, dispatch;                           // Time shit TODO
         gettimeofday(&arrival, NULL);
-
-        pthread_mutex_lock(&active_lock);
+        gettimeofday(&dispatch, NULL);                              // TODO verify correct location for dispatch/arrival
         requestHandle(current_connection_fd, arrival, dispatch, t, log);        // TODO check if this seperation causes context-switch jamming
-        active_threads--;
-        pthread_mutex_unlock(&active_lock);
+        Close(current_connection_fd);
 
-        Close(current_connection_fd);                               // Close the current connection
+        pthread_mutex_lock(&queue_lock);
+        active_threads--;
+        pthread_cond_signal(&queue_not_full);
+        pthread_mutex_unlock(&queue_lock);
+        
     }
     free(t);                                                        // Memory cleanup
 }
