@@ -41,72 +41,110 @@ server_log create_log() {
     log -> readers_inside = 0;
     log -> writers_inside = 0;
     log -> writers_waiting = 0;
-    pthread_mutex_init(&log -> log_lock, NULL);
-    pthread_cond_init(&log -> read_allowed, NULL);
-    pthread_cond_init(&log -> write_allowed, NULL);
+    int rc;
+    if((rc = pthread_mutex_init(&log -> log_lock, NULL)) != 0){
+        posix_error(rc,"pthread_mutex_init failed");
+    }
+    if((rc = pthread_cond_init(&log -> read_allowed, NULL)) != 0){
+        posix_error(rc,"pthread_cond_init failed");
+    } 
+    if((rc = pthread_cond_init(&log -> write_allowed, NULL)) != 0){
+       posix_error(rc,"pthread_cond_init failed");
+    }
 
     return log;
     // TODO: Allocate and initialize internal log structure
 }
 
 // Destroys and frees the log (stub)
-void destroy_log(server_log log) {
+void destroy_log(server_log log){                         
     if (!log) return;
     free(log->log_buffer);
-    pthread_mutex_destroy(&log->log_lock);
-    pthread_cond_destroy(&log->read_allowed);
-    pthread_cond_destroy(&log->write_allowed);
+    int rc;
+    if((rc = pthread_mutex_destroy(&log->log_lock)) != 0){
+        posix_error(rc,"pthread_mutex_destroy failed");
+    }
+    if((rc = pthread_cond_destroy(&log->read_allowed)) != 0){
+        posix_error(rc,"pthread_cond_destroy failed");
+    }
+    if((rc = pthread_cond_destroy(&log->write_allowed)) != 0){
+        posix_error(rc,"pthread_cond_destroy failed");
+    }
     free(log);
 }
 
 // Returns dummy log content as string (stub)
-int get_log(server_log log, char** dst) {
+int get_log(server_log log, char** dst) {                  
     // TODO: Return the full contents of the log as a dynamically allocated string
     // This function should handle concurrent access
-
-    pthread_mutex_lock(&(log->log_lock));
-    while((log->writers_inside) > 0 || (log->writers_waiting) > 0) {
-        pthread_cond_wait(&(log->read_allowed), &(log->log_lock));
+    int rc;
+    if((rc = pthread_mutex_lock(&(log->log_lock))) != 0){
+        posix_error(rc,"pthread_mutex_lock failed");
+    }
+    while((log->writers_inside) > 0 || (log->writers_waiting) > 0){
+        if((rc = pthread_cond_wait(&(log->read_allowed), &(log->log_lock))) != 0){
+            posix_error(rc,"pthread_cond_wait failed");
+        }
     }
     (log->readers_inside)++;
-    pthread_mutex_unlock(&(log->log_lock));
+    if((rc = pthread_mutex_unlock(&(log->log_lock))) != 0){
+        posix_error(rc,"pthread_mutex_unlock failed");
+    }
 
     *dst = malloc(log->log_size + 1);
     if(*dst == NULL){                                       // Handle with a failed reading
         perror("Couldn't malloc get_log");
-        pthread_mutex_lock(&(log->log_lock));
+        if((rc = pthread_mutex_lock(&(log->log_lock))) != 0){
+            posix_error(rc,"pthread_mutex_lock failed");
+        }
         (log->readers_inside)--;
         if((log->readers_inside) == 0){
-            pthread_cond_signal(&(log->write_allowed));
+            if((rc = pthread_cond_signal(&(log->write_allowed))) != 0){
+                posix_error(rc,"pthread_cond_signal failed");
+            }
         }
-        pthread_mutex_unlock(&(log->log_lock));
+        if((rc = pthread_mutex_unlock(&(log->log_lock))) != 0){
+            posix_error(rc,"pthread_mutex_unlock failed");
+        }
         return 0;
     }
 
     memcpy(*dst, log->log_buffer, log->log_size);
     (*dst)[log->log_size] = '\0';
 
-    pthread_mutex_lock(&(log->log_lock));
+    if((rc = pthread_mutex_lock(&(log->log_lock))) != 0){
+        posix_error(rc,"pthread_mutex_lock failed");
+    }
     (log->readers_inside)--;
     if((log->readers_inside) == 0){
-        pthread_cond_signal(&(log->write_allowed));
+        if((rc = pthread_cond_signal(&(log->write_allowed))) != 0){
+            posix_error(rc,"pthread_cond_signal failed");
+        }
     }
-    pthread_mutex_unlock(&(log->log_lock));
+    if((rc = pthread_mutex_unlock(&(log->log_lock))) != 0){
+        posix_error(rc,"pthread_mutex_unlock failed");
+    }
 
     return (int)log->log_size;
 }
 
 // Appends a new entry to the log (no-op stub)
-void add_to_log(server_log log, const char* data, int data_len) {
-
-    pthread_mutex_lock(&log->log_lock);
+void add_to_log(server_log log, const char* data, int data_len) { 
+    int rc;
+    if((rc = pthread_mutex_lock(&log->log_lock)) != 0){
+        posix_error(rc,"pthread_mutex_lock failed");
+    }
     (log->writers_waiting)++;
     while(log->writers_inside + log->readers_inside > 0) {
-        pthread_cond_wait(&log->write_allowed, &log->log_lock);
+        if((rc = pthread_cond_wait(&log->write_allowed, &log->log_lock)) != 0){
+            posix_error(rc,"pthread_cond_wait failed");
+        }
     }
     (log->writers_waiting)--;
     (log->writers_inside)++;
-    pthread_mutex_unlock(&log->log_lock);
+    if((rc = pthread_mutex_unlock(&log->log_lock)) != 0){
+        posix_error(rc,"pthread_mutex_unlock failed");
+    }
 
     if (log->log_size + data_len + 1 > log->log_capacity) { // Case we need to increase the log
         size_t new_log_capacity = (log->log_capacity)*2;
@@ -132,11 +170,19 @@ void add_to_log(server_log log, const char* data, int data_len) {
         log->log_buffer[log->log_size] = '\0';              // End the new log    
     }
 
-    pthread_mutex_lock(&log->log_lock);
+    if((rc = pthread_mutex_lock(&log->log_lock)) != 0){
+        posix_error(rc,"pthread_mutex_lock failed");
+    }
     (log->writers_inside)--;
     if((log->writers_inside) == 0) {
-        pthread_cond_broadcast(&(log->read_allowed));
-        pthread_cond_signal(&(log->write_allowed));
+        if((rc = pthread_cond_broadcast(&(log->read_allowed))) != 0){
+            posix_error(rc,"pthread_cond_broadcast failed");
+        }
+        if((rc = pthread_cond_signal(&(log->write_allowed))) != 0){
+            posix_error(rc,"pthread_cond_signal failed");
+        }
     }
-    pthread_mutex_unlock(&(log->log_lock));
+    if((rc = pthread_mutex_unlock(&(log->log_lock))) != 0){
+        posix_error(rc,"pthread_mutex_unlock failed");
+    }
 }
