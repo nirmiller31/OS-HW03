@@ -22,7 +22,12 @@ typedef struct {
     server_log log;
 } thread_arg;
 
-int *connection_queue;
+typedef struct {
+    int connfd;
+    struct timeval arrival_time;
+} connection_t;
+
+connection_t *connection_queue;
 int head = 0;
 int tail = 0;
 int queued_threads = 0;
@@ -49,7 +54,7 @@ void getargs(int *port, int *threads, int *queue_size, int argc, char *argv[])
 // You must implement a thread pool (fixed number of worker threads)
 // that process requests from a synchronized queue.
 
-void enqueue(int connfd) {
+void enqueue(int connfd, struct timeval arrival_time) {
 
     pthread_mutex_lock(&queue_lock);
 
@@ -57,7 +62,8 @@ void enqueue(int connfd) {
         pthread_cond_wait(&queue_not_full, &queue_lock);            // BLOCK until space
     }
 
-    connection_queue[tail] = connfd;
+    connection_queue[tail].connfd = connfd;
+    connection_queue[tail].arrival_time = arrival_time;
     tail = (tail + 1) % MAX_QUEUE_SIZE;
     queued_threads++;
 
@@ -73,7 +79,7 @@ void* worker_thread(void* arg){
     int thread_id = t_arg->thread_id;
     free(t_arg);                                                    // Done with it
 
-    int current_connection_fd;
+    connection_t current_connection_fd;
 
     threads_stats t = malloc(sizeof(struct Threads_stats));
         t->id = thread_id;
@@ -97,11 +103,23 @@ void* worker_thread(void* arg){
 
         pthread_mutex_unlock(&queue_lock);
 
-        struct timeval arrival, dispatch;                           // Time shit TODO
-        gettimeofday(&arrival, NULL);
-        gettimeofday(&dispatch, NULL);                              // TODO verify correct location for dispatch/arrival
-        requestHandle(current_connection_fd, arrival, dispatch, t, log);        // TODO check if this seperation causes context-switch jamming
-        Close(current_connection_fd);
+	struct timeval now, dispatch;
+	long sec_tmp, usec_tmp;
+
+	gettimeofday(&now, NULL);  // current time (when worker picks up request)
+
+// Compute interval = now - arrival
+	sec_tmp = now.tv_sec - current_connection_fd.arrival_time.tv_sec;
+	usec_tmp = now.tv_usec - current_connection_fd.arrival_time.tv_usec;
+	if (usec_tmp < 0) {
+    		sec_tmp -= 1;
+    		usec_tmp += 1000000;
+	}
+
+	dispatch.tv_sec = sec_tmp;
+	dispatch.tv_usec = usec_tmp;
+        requestHandle(current_connection_fd.connfd, current_connection_fd.arrival_time, dispatch, t, log);        // TODO check if this seperation causes context-switch jamming
+        Close(current_connection_fd.connfd);
 
         pthread_mutex_lock(&queue_lock);
         active_threads--;
@@ -122,7 +140,7 @@ int main(int argc, char *argv[])
 
     getargs(&port, &THREAD_POOL_SIZE, &MAX_QUEUE_SIZE, argc, argv);
 
-    connection_queue = malloc(sizeof(int) * MAX_QUEUE_SIZE);
+    connection_queue = malloc(sizeof(connection_t) * MAX_QUEUE_SIZE);
 
     listenfd = Open_listenfd(port);
 
@@ -136,12 +154,14 @@ int main(int argc, char *argv[])
                                                                     // Send each thread to worker_thread
         pthread_create(&threads[i], NULL, worker_thread, (void*)args[i]);
     }
+	struct timeval arrival;                           // Time shit TODO
     
     while (1) {
         
         clientlen = sizeof(clientaddr);
         connfd = Accept(listenfd, (SA *)&clientaddr, (socklen_t *) &clientlen);
-        enqueue(connfd);
+	    gettimeofday(&arrival, NULL);
+        enqueue(connfd, arrival);
     }
 
     destroy_log(log);                                               // Clean up the server log before exiting
