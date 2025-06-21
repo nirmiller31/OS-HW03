@@ -3,6 +3,8 @@
 #include "segel.h"
 #include "log.h"
 
+#include <unistd.h>
+
 // Opaque struct definition
 struct Server_Log {
     
@@ -65,7 +67,7 @@ int get_log(server_log log, char** dst) {
     // This function should handle concurrent access
 
     pthread_mutex_lock(&(log->log_lock));
-    while((log->writers_inside) > 0 || (log->writers_waiting) > 0) {
+    while((log->writers_inside) + (log->writers_waiting) > 0) {
         pthread_cond_wait(&(log->read_allowed), &(log->log_lock));
     }
     (log->readers_inside)++;
@@ -99,13 +101,14 @@ int get_log(server_log log, char** dst) {
 // Appends a new entry to the log (no-op stub)
 void add_to_log(server_log log, const char* data, int data_len) {
 
+(log->writers_waiting)++;
     pthread_mutex_lock(&log->log_lock);
-    (log->writers_waiting)++;
-    while(log->writers_inside + log->readers_inside > 0) {
+    while(log->writers_inside > 0 || log->readers_inside > 0) {
         pthread_cond_wait(&log->write_allowed, &log->log_lock);
     }
-    (log->writers_waiting)--;
     (log->writers_inside)++;
+    (log->writers_waiting)--;
+    usleep(200000);    
     pthread_mutex_unlock(&log->log_lock);
 
     if (log->log_size + data_len + 1 > log->log_capacity) { // Case we need to increase the log
@@ -135,8 +138,12 @@ void add_to_log(server_log log, const char* data, int data_len) {
     pthread_mutex_lock(&log->log_lock);
     (log->writers_inside)--;
     if((log->writers_inside) == 0) {
-        pthread_cond_broadcast(&(log->read_allowed));
-        pthread_cond_signal(&(log->write_allowed));
+	if(log->writers_waiting > 0){
+		 pthread_cond_signal(&(log->write_allowed));
+	}
+	else{
+		pthread_cond_broadcast(&(log->read_allowed));
+	}
     }
     pthread_mutex_unlock(&(log->log_lock));
 }

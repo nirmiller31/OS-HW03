@@ -236,8 +236,11 @@
 		}
 
 		char stats_buf[MAXBUF];
+		memset(stats_buf, 0, MAXBUF);
 		int stats_len = append_stats(stats_buf, t_stats, arrival, dispatch);
-		add_to_log(log, stats_buf, stats_len);
+		stats_buf[stats_len] = '\n';
+		stats_buf[stats_len+1] = '\0';
+		add_to_log(log, stats_buf, stats_len+1);
 
 		// TODO: verify its ok add log entry using add_to_log(server_log log, const char* data, int data_len);
 
